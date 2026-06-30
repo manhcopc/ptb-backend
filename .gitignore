@@ -1,0 +1,41 @@
+# compiled output
+/dist
+/node_modules
+
+# logs
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# os
+.DS_Store
+
+# testing
+/coverage
+/.nyc_output
+
+# IDEs and editors
+/.idea
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+
+# ide - vs code
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# dotenv environment variable files
+.env
+.env.test
+.env.production
+
+# nest
+nest-cli.json
+gcs-key.json
+gcs_key_photobooth.jsonphotobooth-500712-302bdc95dfc1.json
