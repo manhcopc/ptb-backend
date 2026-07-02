@@ -11,6 +11,7 @@ import { AdminModule } from './admin/admin.module';
 import { Session } from './entities/session.entity';
 import { Media } from './entities/media.entity';
 import { FinalOutput } from './entities/final-output.entity';
+import { HealthController } from './health/health.controller';
 
 @Module({
   imports: [
@@ -33,7 +34,9 @@ import { FinalOutput } from './entities/final-output.entity';
         database: configService.get<string>('POSTGRES_DB'),
         entities: [Session, Media, FinalOutput],
         synchronize: true,
-        ssl: configService.get<string>('DATABASE_URL') ? { rejectUnauthorized: false } : false,
+        ssl: configService.get<string>('DATABASE_URL')
+          ? { rejectUnauthorized: false }
+          : false,
       }),
       inject: [ConfigService],
     }),
@@ -41,7 +44,7 @@ import { FinalOutput } from './entities/final-output.entity';
     GatewayModule,
     AdminModule,
   ],
-  controllers: [AppController],
+  controllers: [AppController, HealthController],
   providers: [AppService],
 })
-export class AppModule { }
+export class AppModule {}
