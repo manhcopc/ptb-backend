@@ -52,13 +52,13 @@ export class StorageService {
     });
 
     // Tự động set public cho file để tránh lỗi AccessDenied khi quét QR code
-    try {
-      await file.makePublic();
-    } catch (e) {
-      this.logger.warn(
-        `Could not make file ${filename} public (bucket might have uniform access). Error: ${e.message}`,
-      );
-    }
+    // try {
+    //   await file.makePublic();
+    // } catch (e) {
+    //   this.logger.warn(
+    //     `Could not make file ${filename} public (bucket might have uniform access). Error: ${e.message}`,
+    //   );
+    // }
 
     return `https://storage.googleapis.com/${this.bucketName}/${filename}`;
   }
