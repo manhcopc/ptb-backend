@@ -44,6 +44,24 @@ export class FinalOutput {
     @Column('text', { default: 'success' })
     upload_status: string;
 
+    @Column('uuid', { nullable: true })
+    frame_id: string;
+
+    @Column('text', { nullable: true })
+    frame_name: string;
+
+    @Column('text', { nullable: true })
+    frame_render_mode: string;
+
+    @Column('text', { nullable: true, default: 'public' })
+    visibility: string;
+
+    @Column('text', { nullable: true })
+    hidden_reason: string;
+
+    @Column('timestamptz', { nullable: true })
+    hidden_at: Date;
+
     @CreateDateColumn({ type: 'timestamptz' })
     created_at: Date;
 }

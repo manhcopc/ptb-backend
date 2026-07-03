@@ -207,6 +207,9 @@ export class SessionsController {
                 session_id: sessionId,
                 image_url: finalImageUrl,
                 image_path: finalImagePath,
+                frame_id: body.selectedFrameId,
+                frame_name: body.selectedFrameName,
+                frame_render_mode: body.selectedFrameRenderMode
                 // file_size: file.size // We can track size if we map it
             });
 

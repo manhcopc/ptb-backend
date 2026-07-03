@@ -72,6 +72,9 @@ export class SessionsService {
         file_size?: number;
         mime_type?: string;
         video_url?: string;
+        frame_id?: string;
+        frame_name?: string;
+        frame_render_mode?: string;
     }): Promise<FinalOutput> {
         const output = this.finalOutputRepository.create({
             id: data.id,
@@ -81,6 +84,9 @@ export class SessionsService {
             image_path: data.image_path,
             file_size: data.file_size,
             mime_type: data.mime_type,
+            frame_id: data.frame_id,
+            frame_name: data.frame_name,
+            frame_render_mode: data.frame_render_mode,
             upload_status: 'success'
             // We can add video_url to DB if schema allows, otherwise just save image.
         });
