@@ -62,4 +62,15 @@ export class StorageService {
 
     return `https://storage.googleapis.com/${this.bucketName}/${filename}`;
   }
+
+  async deleteFilesByPrefix(prefix: string): Promise<void> {
+    try {
+      const bucket = this.storage.bucket(this.bucketName);
+      await bucket.deleteFiles({ prefix });
+      this.logger.log(`Successfully deleted files with prefix: ${prefix}`);
+    } catch (error) {
+      this.logger.error(`Failed to delete files with prefix ${prefix}`, error);
+      throw error;
+    }
+  }
 }

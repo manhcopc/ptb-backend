@@ -255,6 +255,22 @@ export class SessionsController {
         return this.sessionsService.getDailyStats();
     }
 
+    @ApiOperation({ summary: 'Delete all SaaS files in GCS for a specific event', operationId: 'deleteSaasEventFiles' })
+    @ApiResponse({ status: 200, description: 'SaaS event files deleted from GCS.' })
+    @Delete('saas/files/event/:eventId')
+    async deleteSaasEventFiles(@Param('eventId') eventId: string) {
+        await this.storageService.deleteFilesByPrefix(`saas/${eventId}/`);
+        return { success: true, message: 'All files for the event have been deleted from GCS.' };
+    }
+
+    @ApiOperation({ summary: 'Delete SaaS files in GCS for a specific session', operationId: 'deleteSaasSessionFiles' })
+    @ApiResponse({ status: 200, description: 'SaaS session files deleted from GCS.' })
+    @Delete('saas/files/session/:eventId/:sessionId')
+    async deleteSaasSessionFiles(@Param('eventId') eventId: string, @Param('sessionId') sessionId: string) {
+        await this.storageService.deleteFilesByPrefix(`saas/${eventId}/${sessionId}/`);
+        return { success: true, message: 'All files for the session have been deleted from GCS.' };
+    }
+
     @ApiOperation({ summary: 'Get hourly statistics', operationId: 'getHourlyStats' })
     @ApiResponse({ status: 200, description: 'Return hourly statistics.' })
     @Get('stats/hourly')
