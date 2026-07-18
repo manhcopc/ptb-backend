@@ -148,7 +148,10 @@ export class SessionsController {
         const originalPhotoUrls: string[] = [];
         const videoClipUrls: string[] = [];
 
-        for (const file of files) {
+        const videoClipFiles = files.filter(f => f.fieldname === 'videoClips');
+        const otherFiles = files.filter(f => f.fieldname !== 'videoClips');
+
+        for (const file of otherFiles) {
             const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
             const originalName = file.originalname.replace(/\s+/g, '-');
             const filename = `saas/${eventId}/${sessionId}/${uniqueSuffix}-${originalName}`;
@@ -178,8 +181,19 @@ export class SessionsController {
                 finalVideoUrl = fileUrl;
             } else if (file.fieldname === 'photos' || file.mimetype.startsWith('image/')) {
                 originalPhotoUrls.push(fileUrl);
-            } else if (file.fieldname === 'videoClips' || file.mimetype.startsWith('video/')) {
+            }
+        }
+
+        if (videoClipFiles.length > 0) {
+            try {
+                const shouldMirror = body.isMirrored === 'true';
+                const concatenatedBuffer = await this.videoService.concatenateWebMToMp4(videoClipFiles.map(f => f.buffer), shouldMirror);
+                const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+                const filename = `saas/${eventId}/${sessionId}/${uniqueSuffix}-recap.mp4`;
+                const fileUrl = await this.storageService.uploadFile(filename, concatenatedBuffer, 'video/mp4');
                 videoClipUrls.push(fileUrl);
+            } catch (e) {
+                console.error('Video concatenation failed:', e);
             }
         }
 

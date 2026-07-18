@@ -107,4 +107,82 @@ export class VideoService {
             }
         }
     }
+
+    async concatenateWebMToMp4(inputBuffers: Buffer[], isMirrored: boolean = false): Promise<Buffer> {
+        if (!inputBuffers || inputBuffers.length === 0) {
+            throw new Error('No input buffers provided');
+        }
+
+        const uniqueId = Date.now() + '-' + Math.round(Math.random() * 1e9);
+        const inputFiles: string[] = [];
+        const listFilePath = path.join(os.tmpdir(), `list-${uniqueId}.txt`);
+        const outputPath = path.join(os.tmpdir(), `output-concat-${uniqueId}.mp4`);
+
+        try {
+            // Write input buffers to temp files
+            let listContent = '';
+            for (let i = 0; i < inputBuffers.length; i++) {
+                const inputPath = path.join(os.tmpdir(), `input-${uniqueId}-${i}.webm`);
+                await fs.promises.writeFile(inputPath, inputBuffers[i]);
+                inputFiles.push(inputPath);
+                // Important: FFmpeg concat demuxer requires paths relative to the list file or absolute, formatted properly.
+                listContent += `file '${inputPath}'\n`;
+            }
+
+            await fs.promises.writeFile(listFilePath, listContent);
+            this.logger.log(`Starting concatenation of ${inputBuffers.length} videos -> ${outputPath}`);
+
+            await new Promise<void>((resolve, reject) => {
+                ffmpeg()
+                    .input(listFilePath)
+                    .inputOptions(['-f concat', '-safe 0'])
+                    .output(outputPath)
+                    .videoCodec('libx264')
+                    .audioCodec('aac')
+                    .outputOptions([
+                        '-pix_fmt yuv420p',
+                        '-profile:v baseline',
+                        '-level:v 4.1',
+                        '-r 30',
+                        '-vsync cfr',
+                        `-vf ${isMirrored ? 'hflip,' : ''}scale=trunc(iw/2)*2:trunc(ih/2)*2`,
+                        '-movflags +faststart',
+                        '-b:a 128k',
+                        '-ar 44100',
+                        '-preset fast',
+                        '-crf 23',
+                    ])
+                    .on('start', (commandLine) => {
+                        this.logger.debug(`FFmpeg concat command: ${commandLine}`);
+                    })
+                    .on('end', () => {
+                        this.logger.log('Video concatenation completed successfully');
+                        resolve();
+                    })
+                    .on('error', (err) => {
+                        this.logger.error(`Error concatenating videos: ${err.message}`);
+                        reject(err);
+                    })
+                    .run();
+            });
+
+            const outputBuffer = await fs.promises.readFile(outputPath);
+            this.logger.log(`Concatenation successful. Output size: ${outputBuffer.length} bytes`);
+            return outputBuffer;
+        } catch (error) {
+            this.logger.error(`Failed to concatenate videos: ${error.message}`, error.stack);
+            throw new InternalServerErrorException('Video concatenation failed');
+        } finally {
+            // Cleanup temp files
+            try {
+                if (fs.existsSync(listFilePath)) await fs.promises.unlink(listFilePath);
+                if (fs.existsSync(outputPath)) await fs.promises.unlink(outputPath);
+                for (const file of inputFiles) {
+                    if (fs.existsSync(file)) await fs.promises.unlink(file);
+                }
+            } catch (cleanupErr) {
+                this.logger.warn(`Failed to cleanup temp concat files: ${cleanupErr.message}`);
+            }
+        }
+    }
 }

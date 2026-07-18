@@ -21,7 +21,7 @@
     "gen:client": "orval"
   },
   "dependencies": {
-    "@google-cloud/storage": "^7.18.0",
+    "@aws-sdk/client-s3": "^3.1090.0",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.2",
     "@nestjs/core": "^11.0.1",
