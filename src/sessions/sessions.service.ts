@@ -21,9 +21,9 @@ export class SessionsService {
         private readonly boothGateway: BoothGateway,
     ) { }
 
-    async create(createSessionDto: CreateSessionDto): Promise<Session> {
-        // config from dto is currently unused/unmapped
+    async create(createSessionDto: CreateSessionDto | any): Promise<Session> {
         const session = this.sessionsRepository.create();
+        if (createSessionDto) Object.assign(session, createSessionDto);
         const savedSession = await this.sessionsRepository.save(session);
         this.boothGateway.server.emit('session_created', savedSession);
         return savedSession;

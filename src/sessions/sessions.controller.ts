@@ -142,65 +142,32 @@ export class SessionsController {
         const eventId = body.eventId || 'default-event';
         const sessionId = body.sessionId || Date.now().toString();
 
+        const videoClipFiles = files.filter(f => f.fieldname === 'videoClips');
+        const finalVideoFiles = files.filter(f => f.fieldname === 'finalVideo' || (f.originalname.includes('final') && f.mimetype.startsWith('video/')));
+        const imageFiles = files.filter(f => f.fieldname !== 'videoClips' && f.fieldname !== 'finalVideo' && !(f.originalname.includes('final') && f.mimetype.startsWith('video/')));
+
         let finalImageUrl = '';
         let finalImagePath = '';
-        let finalVideoUrl = '';
         const originalPhotoUrls: string[] = [];
-        const videoClipUrls: string[] = [];
 
-        const videoClipFiles = files.filter(f => f.fieldname === 'videoClips');
-        const otherFiles = files.filter(f => f.fieldname !== 'videoClips');
-
-        for (const file of otherFiles) {
+        // 1. Process images synchronously (fast)
+        for (const file of imageFiles) {
             const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
             const originalName = file.originalname.replace(/\s+/g, '-');
             const filename = `saas/${eventId}/${sessionId}/${uniqueSuffix}-${originalName}`;
 
-            // Convert webm to mp4 if it's a video
-            let finalBuffer = file.buffer;
-            let finalMimeType = file.mimetype;
-            let uploadFilename = filename;
-
-            if (file.mimetype === 'video/webm' || file.mimetype === 'video/x-matroska') {
-                try {
-                    const shouldMirror = file.fieldname === 'videoClips' ? body.isMirrored === 'true' : false;
-                    finalBuffer = await this.videoService.convertWebMToMp4(file.buffer, shouldMirror);
-                    finalMimeType = 'video/mp4';
-                    uploadFilename = filename.replace(/\.(webm|mkv)$/, '.mp4');
-                } catch (e) {
-                    console.error('Video conversion failed:', e);
-                }
-            }
-
-            const fileUrl = await this.storageService.uploadFile(uploadFilename, finalBuffer, finalMimeType);
+            const fileUrl = await this.storageService.uploadFile(filename, file.buffer, file.mimetype);
 
             if (file.fieldname === 'finalImage' || (file.originalname.includes('final') && file.mimetype.startsWith('image/'))) {
                 finalImageUrl = fileUrl;
-                finalImagePath = uploadFilename;
-            } else if (file.fieldname === 'finalVideo' || (file.originalname.includes('final') && file.mimetype.startsWith('video/'))) {
-                finalVideoUrl = fileUrl;
+                finalImagePath = filename;
             } else if (file.fieldname === 'photos' || file.mimetype.startsWith('image/')) {
                 originalPhotoUrls.push(fileUrl);
             }
         }
 
-        if (videoClipFiles.length > 0) {
-            try {
-                const shouldMirror = body.isMirrored === 'true';
-                const concatenatedBuffer = await this.videoService.concatenateWebMToMp4(videoClipFiles.map(f => f.buffer), shouldMirror);
-                const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-                const filename = `saas/${eventId}/${sessionId}/${uniqueSuffix}-recap.mp4`;
-                const fileUrl = await this.storageService.uploadFile(filename, concatenatedBuffer, 'video/mp4');
-                videoClipUrls.push(fileUrl);
-            } catch (e) {
-                console.error('Video concatenation failed:', e);
-            }
-        }
-
-        // Generate output ID
+        // 2. Create the Session in DB immediately
         const outputId = `output-${Date.now()}`;
-
-        // Create a new session for the Admin Dashboard and Share Page
         const session = await this.sessionsService.create({
             status: 'COMPLETED',
             selectedFilter: 'saas-filter',
@@ -208,12 +175,10 @@ export class SessionsController {
             isMirrored: body.isMirrored === 'true',
         } as any);
 
-        // Update the saasSessionId
         await this.sessionsService.update(session.id, { saasSessionId: sessionId } as any);
 
         const mediaPromises: Promise<any>[] = [];
 
-        // Save to Supabase DB via TypeORM
         if (finalImageUrl) {
             await this.sessionsService.saveFinalOutput({
                 id: outputId,
@@ -224,28 +189,57 @@ export class SessionsController {
                 frame_id: body.selectedFrameId,
                 frame_name: body.selectedFrameName,
                 frame_render_mode: body.selectedFrameRenderMode
-                // file_size: file.size // We can track size if we map it
             });
-
-            // Also save as Media for Admin Dashboard
             mediaPromises.push(this.sessionsService.addMedia(session.id, finalImageUrl, 'PROCESSED'));
-        }
-
-        if (finalVideoUrl) {
-            mediaPromises.push(this.sessionsService.addMedia(session.id, finalVideoUrl, 'VIDEO_RECAP'));
         }
 
         for (const fileUrl of originalPhotoUrls) {
             mediaPromises.push(this.sessionsService.addMedia(session.id, fileUrl, 'ORIGINAL'));
         }
-
-        for (const fileUrl of videoClipUrls) {
-            mediaPromises.push(this.sessionsService.addMedia(session.id, fileUrl, 'VIDEO'));
-        }
-
         await Promise.all(mediaPromises);
 
+        // 3. Process videos asynchronously (slow) - Fire and forget
+        this.processVideosAsync(eventId, sessionId, session.id, finalVideoFiles, videoClipFiles, body).catch(e => console.error('Async video processing error:', e));
+
+        // 4. Return success immediately
         return { success: true, finalImageUrl, sessionId: session.id };
+    }
+
+    private async processVideosAsync(eventId: string, saasSessionId: string, dbSessionId: string, finalVideoFiles: Array<Express.Multer.File>, videoClipFiles: Array<Express.Multer.File>, body: any) {
+        for (const file of finalVideoFiles) {
+            const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+            const originalName = file.originalname.replace(/\s+/g, '-');
+            const filename = `saas/${eventId}/${saasSessionId}/${uniqueSuffix}-${originalName}`;
+            
+            let finalBuffer = file.buffer;
+            let finalMimeType = file.mimetype;
+            let uploadFilename = filename;
+
+            if (file.mimetype === 'video/webm' || file.mimetype === 'video/x-matroska') {
+                try {
+                    finalBuffer = await this.videoService.convertWebMToMp4(file.buffer, false);
+                    finalMimeType = 'video/mp4';
+                    uploadFilename = filename.replace(/\.(webm|mkv)$/, '.mp4');
+                } catch (e) {
+                    console.error('Video conversion failed:', e);
+                }
+            }
+            const fileUrl = await this.storageService.uploadFile(uploadFilename, finalBuffer, finalMimeType);
+            await this.sessionsService.addMedia(dbSessionId, fileUrl, 'VIDEO_RECAP');
+        }
+
+        if (videoClipFiles.length > 0) {
+            try {
+                const shouldMirror = body.isMirrored === 'true';
+                const concatenatedBuffer = await this.videoService.concatenateWebMToMp4(videoClipFiles.map(f => f.buffer), shouldMirror);
+                const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+                const filename = `saas/${eventId}/${saasSessionId}/${uniqueSuffix}-recap.mp4`;
+                const fileUrl = await this.storageService.uploadFile(filename, concatenatedBuffer, 'video/mp4');
+                await this.sessionsService.addMedia(dbSessionId, fileUrl, 'VIDEO');
+            } catch (e) {
+                console.error('Video concatenation failed:', e);
+            }
+        }
     }
 
     @ApiOperation({ summary: 'List all sessions', operationId: 'getSessions' })

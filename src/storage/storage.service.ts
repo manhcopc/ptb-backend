@@ -1,85 +1,70 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { S3Client, PutObjectCommand, ListObjectsV2Command, DeleteObjectsCommand } from '@aws-sdk/client-s3';
+import * as fs from 'fs/promises';
+import * as path from 'path';
 
 @Injectable()
 export class StorageService {
-  private s3: S3Client;
-  private bucketName: string;
-  private endpoint: string;
+  private backendUrl: string;
+  private uploadsDir: string;
   private logger = new Logger(StorageService.name);
 
   constructor(private configService: ConfigService) {
-    this.bucketName = this.configService.get<string>('DO_SPACES_BUCKET') || '';
-    this.endpoint = this.configService.get<string>('DO_SPACES_ENDPOINT') || 'https://sgp1.digitaloceanspaces.com';
+    // URL public của Backend, ví dụ: https://my-backend.ngrok-free.app
+    // Cấu hình trong file .env biến PUBLIC_BACKEND_URL
+    this.backendUrl = this.configService.get<string>('PUBLIC_BACKEND_URL') || 'http://localhost:4000';
+    this.uploadsDir = path.join(process.cwd(), 'uploads');
     
-    const accessKeyId = this.configService.get<string>('DO_SPACES_KEY') || '';
-    const secretAccessKey = this.configService.get<string>('DO_SPACES_SECRET') || '';
+    // Đảm bảo thư mục gốc uploads/ tồn tại
+    this.initStorage();
+  }
 
-    if (!accessKeyId || !secretAccessKey) {
-      this.logger.error('Missing DO_SPACES_KEY or DO_SPACES_SECRET environment variables!');
+  private async initStorage() {
+    try {
+      await fs.access(this.uploadsDir);
+    } catch {
+      await fs.mkdir(this.uploadsDir, { recursive: true });
+      this.logger.log(`Created uploads directory at ${this.uploadsDir}`);
     }
-
-    this.s3 = new S3Client({
-      endpoint: this.endpoint,
-      forcePathStyle: false, // DO Spaces usually works with virtual-hosted style
-      region: 'sgp1', // Required by S3 SDK, even if DO Spaces
-      credentials: {
-        accessKeyId,
-        secretAccessKey,
-      },
-    });
   }
 
   async uploadFile(
-    filename: string,
+    filename: string, // VD: saas/default-event/123/file.webp
     buffer: Buffer,
     contentType: string,
   ): Promise<string> {
-    const command = new PutObjectCommand({
-      Bucket: this.bucketName,
-      Key: filename,
-      Body: buffer,
-      ContentType: contentType,
-      ACL: 'public-read', // Đảm bảo file được public để khách quét mã QR xem được
-    });
+    const fullPath = path.join(this.uploadsDir, filename);
+    const dir = path.dirname(fullPath);
 
-    await this.s3.send(command);
+    // Tạo các thư mục con tương ứng với cấu trúc đường dẫn (nếu chưa có)
+    try {
+      await fs.access(dir);
+    } catch {
+      await fs.mkdir(dir, { recursive: true });
+    }
 
-    // Xây dựng public URL
-    // Endpoint của DO Spaces thường có dạng: https://sgp1.digitaloceanspaces.com
-    // URL sẽ là: https://<bucket>.sgp1.digitaloceanspaces.com/<filename>
-    const urlEndpoint = this.endpoint.replace('https://', '');
-    return `https://${this.bucketName}.${urlEndpoint}/${filename}`;
+    // Lưu file xuống ổ cứng
+    await fs.writeFile(fullPath, buffer);
+    
+    // Trả về public URL để frontend và DB lưu lại
+    return `${this.backendUrl}/uploads/${filename}`;
   }
 
   async deleteFilesByPrefix(prefix: string): Promise<void> {
+    // prefix truyền vào thường có dạng "saas/event-id/" (dạng thư mục)
+    const targetPath = path.join(this.uploadsDir, prefix);
     try {
-      // B1: Lấy danh sách các file có chung prefix
-      const listCommand = new ListObjectsV2Command({
-        Bucket: this.bucketName,
-        Prefix: prefix,
-      });
-      const listResponse = await this.s3.send(listCommand);
-      
-      if (!listResponse.Contents || listResponse.Contents.length === 0) {
-        return; // Không có file nào để xóa
+      const stats = await fs.stat(targetPath);
+      if (stats.isDirectory()) {
+        await fs.rm(targetPath, { recursive: true, force: true });
+        this.logger.log(`Successfully deleted directory: ${prefix}`);
+      } else {
+        await fs.unlink(targetPath);
       }
-
-      // B2: Tạo lệnh xóa
-      const deleteCommand = new DeleteObjectsCommand({
-        Bucket: this.bucketName,
-        Delete: {
-          Objects: listResponse.Contents.map((item) => ({ Key: item.Key })),
-          Quiet: false,
-        },
-      });
-
-      await this.s3.send(deleteCommand);
-      this.logger.log(`Successfully deleted ${listResponse.Contents.length} files with prefix: ${prefix}`);
-    } catch (error) {
-      this.logger.error(`Failed to delete files with prefix ${prefix}`, error);
-      throw error;
+    } catch (error: any) {
+      if (error.code !== 'ENOENT') {
+         this.logger.error(`Failed to delete prefix ${prefix}`, error);
+      }
     }
   }
 }
